@@ -24,4 +24,5 @@ func main() {
 	defer item.Close(context.Background())
 
 	fmt.Printf("%v\n", item)
+	item.Done(context.Background())
 }

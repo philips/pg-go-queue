@@ -51,3 +51,8 @@ func (c *Conn) Next(ctx context.Context) (i Item, err error) {
 func (i *Item) Close(ctx context.Context) (err error) {
 	return i.tx.Commit(ctx)
 }
+
+func (i *Item) Done(ctx context.Context) (err error) {
+	_, err = i.tx.Exec(ctx, "DELETE FROM jobs WHERE url = $1", i.URL)
+	return
+}
