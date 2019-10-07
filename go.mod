@@ -1,4 +1,4 @@
-module github.com/philips/pg-go-que
+module github.com/philips/pg-go-queue
 
 go 1.13
 

@@ -3,60 +3,51 @@ package queue
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/jackc/pgx/v4"
 )
 
 type Conn struct {
-	pgx.Conn
+	db *pgx.Conn
 }
 
 type Item struct {
 	URL      string
 	Priority int
-	tx       *pgx.Tx
+	tx       pgx.Tx
 }
 
-func New() Conn {
-	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+func New(url string) (*Conn, error) {
+	conn, err := pgx.Connect(context.Background(), url)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connection to database: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("Unable to connection to database: %v\n", err)
 	}
 
-	return Conn{*conn}
+	return &Conn{db: conn}, nil
 }
 
-func (c Conn) Close() {
-	c.Close()
+func (c Conn) Close(ctx context.Context) {
+	c.db.Close(ctx)
 }
 
-func (c *Conn) Next() (i Item, err error) {
-	*i.tx, err = c.Begin(context.Background())
-	if err != nil {
-		return
-	}
-
-	var rows pgx.Rows
-	rows, err = (*i.tx).Query(context.Background(), "SELECT url, priority FROM jobs ORDER BY priority DESC FOR UPDATE skip locked")
+func (c *Conn) Next(ctx context.Context) (i Item, err error) {
+	var tx pgx.Tx
+	tx, err = c.db.Begin(ctx)
 	if err != nil {
 		return
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		if err = rows.Scan(&i.URL, &i.Priority); err != nil {
-			return
-		}
-	}
-	if err = rows.Err(); err != nil {
+	row := tx.QueryRow(ctx, "SELECT url, priority FROM jobs ORDER BY priority DESC FOR UPDATE skip locked")
+
+	if err = row.Scan(&i.URL, &i.Priority); err != nil {
 		return
 	}
+
+	i.tx = *&tx
 
 	return
 }
 
-func (i *Item) Close() (err error) {
-	return (*i.tx).Commit(context.Background())
+func (i *Item) Close(ctx context.Context) (err error) {
+	return i.tx.Commit(ctx)
 }
