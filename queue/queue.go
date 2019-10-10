@@ -2,10 +2,13 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v4"
 )
+
+var ErrNoItem = errors.New("no item in queue")
 
 type Conn struct {
 	db *pgx.Conn
@@ -30,6 +33,17 @@ func (c Conn) Close(ctx context.Context) {
 	c.db.Close(ctx)
 }
 
+func (c *Conn) Insert(ctx context.Context, i Item) (err error) {
+	_, err = c.db.Exec(ctx, "INSERT INTO jobs (url) VALUES ($1)", i.URL)
+	return
+}
+
+// Drain deletes all items in the queue.
+func (c *Conn) Drain(ctx context.Context) (err error) {
+	_, err = c.db.Exec(ctx, "DELETE FROM jobs")
+	return
+}
+
 func (c *Conn) Next(ctx context.Context) (i Item, err error) {
 	var tx pgx.Tx
 	tx, err = c.db.Begin(ctx)
@@ -40,6 +54,10 @@ func (c *Conn) Next(ctx context.Context) (i Item, err error) {
 	row := tx.QueryRow(ctx, "SELECT url, priority FROM jobs ORDER BY priority DESC FOR UPDATE skip locked")
 
 	if err = row.Scan(&i.URL, &i.Priority); err != nil {
+		if err == pgx.ErrNoRows {
+			err = ErrNoItem
+		}
+
 		return
 	}
 
@@ -48,11 +66,11 @@ func (c *Conn) Next(ctx context.Context) (i Item, err error) {
 	return
 }
 
-func (i *Item) Close(ctx context.Context) (err error) {
-	return i.tx.Commit(ctx)
-}
-
 func (i *Item) Done(ctx context.Context) (err error) {
 	_, err = i.tx.Exec(ctx, "DELETE FROM jobs WHERE url = $1", i.URL)
 	return
+}
+
+func (i *Item) Close(ctx context.Context) (err error) {
+	return i.tx.Commit(ctx)
 }
